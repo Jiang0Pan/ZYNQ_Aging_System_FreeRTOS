@@ -1,0 +1,1469 @@
+/*
+  ** @file           : isl8272.c
+  ** @brief          : The Device Of ISL8272(IIC PWR Device) Source File
+  **
+  ** @attention
+  **
+  ** Copyright (c) 2020 ChengDuHangke.
+  ** All rights reserved.
+  **
+  ** This software is licensed by ChengDuHangke under Ultimate Liberty license
+  **
+*/
+
+
+/*
+  ** Include
+*/
+#include "math.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "sleep.h"
+#include "debug_config.h"
+#include "return_val.h"
+#include "IIC.h"
+#include "SMBus.h"
+#include "fpga_ctrl.h"
+#include "GlobalRef.h"
+#include "memory_map.h"
+#include "isl8272.h"
+
+
+/*
+  ** Static Global Variable
+*/
+static u32 CalBuf1[16];
+
+
+/*
+  ** Function Name        : Config_Isl8272_Reg
+  ** Function Description : Config Isl8272(ISL8277) Register 
+  ** Function Parameter   : Reg_Addr   			: Isl8272 register address                   
+  ** 						Reg_data 		    : The point to write data pointer
+  **                        Data_Len 		    : Write data length
+  **                        Slaveaddr           : IIC slave address
+  **                        Chan                : Expand iic channel
+  ** Function Return	  :	WRITE_SUCEESS       : Write Isl8272 register data success
+  **                      : WRITE_FAILED        : Write Isl8272 register data failed
+  ** Notes				  : None
+*/
+u8 Config_Isl8272_Reg(u8 Reg_Addr, u8 * Reg_data, u8 Data_Len ,u8 Slaveaddr, IIC_Chan Chan)
+{
+	u8 status;
+	/* Read Data Buf */
+	u16 Write_data, Read_data = 0x00;
+	u8 Write_buf[2] = {0x00};
+	u8 Read_buf[2] = {0x00};
+	u8 Retry = 0x00;
+	TickType_t x1ms = pdMS_TO_TICKS(1);
+
+	Write_buf[0] = Reg_data[0];
+	Write_buf[1] = Reg_data[1];
+	Write_data = Reg_data[1];
+	Write_data = Write_data >> 8;
+	Write_data |= Reg_data[0];
+
+	do {
+		status = Write_Isl8272_Reg(Reg_Addr, Write_buf, Data_Len, Slaveaddr, Chan);
+		if (WRITE_SUCCESS != status) {			
+			return CONFIG_FAILED;
+		}
+
+	    vTaskDelay(x1ms);
+
+		status = Read_Isl8272_Reg(Reg_Addr, Read_buf, Data_Len, Slaveaddr, Chan);
+		if (READ_SUCCESS != status) {
+			return CONFIG_FAILED;
+		}
+	    vTaskDelay(x1ms);
+
+		Read_data = Read_buf[1];
+		Read_data = Read_data >> 8;
+		Read_data |= Read_buf[0];
+
+	} while (Write_data != Read_data);
+
+	return CONFIG_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Write_Isl8272_Reg
+  ** Function Description : Write Data To Isl8272(ISL8277) Register 
+  ** Function Parameter   : Reg_Addr   			: Isl8272 register address                   
+  ** 						Reg_data 		    : The point to write data pointer
+  **                        Data_Len 		    : Write data length
+  **                        Slaveaddr           : IIC slave address
+  **                        Chan                : Expand iic channel
+  ** Function Return	  :	WRITE_SUCEESS       : Write Isl8272 register data success
+  **                      : WRITE_FAILED        : Write Isl8272 register data failed
+  ** Notes				  : None
+*/
+u8 Write_Isl8272_Reg(u8 Reg_Addr, u8 * Reg_data, u8 Data_Len ,u8 Slaveaddr, IIC_Chan Chan)
+{
+	u8 status;
+
+	status = SMBus_Write(Reg_data, Data_Len, Slaveaddr, Reg_Addr, Chan);
+	if (SUCCESS != status) {
+ 		debug("iic write isl8272 register %x failed in %s Files,%d Line\n", Reg_Addr,  __FILE__, __LINE__);	
+		return WRITE_FAILED;	
+	}
+
+	return WRITE_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Read_Isl8272_Reg
+  ** Function Description : Read Data To Isl8272(ISL8277) Register 
+  ** Function Parameter   : Reg_Addr   			: Isl8272 register address                   
+  ** 						Reg_data 		    : The point to write data pointer
+  **                        Data_Len 		    : Read data length
+  **                        Slaveaddr           : IIC slave address
+  **                        Chan                : Expand iic channel
+  ** Function Return	  :	READ_SUCEESS        : Read Isl8272 register data success
+  **                      : READ_FAILED         : Read Isl8272 register data failed
+  ** Notes				  : None
+*/
+u8 Read_Isl8272_Reg(u8 Reg_Addr, u8 * Reg_data, u8 Data_Len ,u8 Slaveaddr, IIC_Chan Chan)
+{
+	u8 status;
+
+	status = SMBus_Read(Reg_data, Data_Len, Slaveaddr, Reg_Addr, Chan);
+	if (SUCCESS != status) {
+ 		debug("iic read isl8272 register %x failed in %s Files,%d Line\n", Reg_Addr,  __FILE__, __LINE__);	
+		return READ_FAILED;	
+	}
+
+	return READ_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Isl8272_Config
+  ** Function Description : Isl8272(Isl8277) Config
+  ** Function Parameter   : Ch   			    : Dps Channel                  
+  ** 						Dps_cfg 		    : Dps Config parameter
+  **                      : Protect 		    : Protect enable
+  ** Function Return	  :	SUCEESS             : Configuration success
+  **                      : FAILURE             : Configuration failed
+  ** Notes				  : None
+*/
+u8 Isl8272_Config(Dps_channel Ch, Dps_Arg * Dps_cfg, u8 Protect, u8 Bid)
+{
+	u8 IIC_Addr = 0x00;
+	u8 data[2] = {0x00};
+	u16 BufData = 0x00;
+	u8 status;
+
+ 	switch (Ch) {
+ 		case DPSA_CHANNEL: {
+ 				IIC_Addr = DPSA_8272_ADDR;
+ 			}
+ 			break;
+ 		case DPSB_CHANNEL: {
+ 				IIC_Addr = DPSB_8277_ADDR;
+ 			}
+ 			break;
+ 		case DPSC_CHANNEL: {
+ 				IIC_Addr = DPSC_8277_ADDR;
+ 			}
+ 			break;
+ 		case DPSD_CHANNEL: {
+ 				IIC_Addr = DPSD_8277_ADDR;
+ 			}
+ 			break;
+ 		case DPSE_CHANNEL: {
+ 				IIC_Addr = DPSE_8277_ADDR;
+ 			}
+ 			break;
+ 		case DPSF_CHANNEL: {
+ 				IIC_Addr = DPSF_8277_ADDR;
+ 			}
+ 			break;
+ 		default:
+
+ 			break;
+ 	}
+
+    /* Ready register data */
+	data[0] = 0x17;
+	/* Write register data */
+	status = Write_Isl8272_Reg(ON_OFF_CONFIG, data, 1, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (WRITE_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+    /* Ready register data */
+	data[0] = 0x04;
+	/* Write register data */
+	status = Write_Isl8272_Reg(OPERATION, data, 1, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (WRITE_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+    /* Ready register data */
+	data[0] = 0x04;
+	/* Write register data */
+	status = Write_Isl8272_Reg(CLEAR_FAULTS, data, 1, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (WRITE_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = CoverToL11(13000);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VIN_OV_FAULT_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+    /* Ready register data */
+ 	BufData = CoverToL11(7000);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VIN_UV_FAULT_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+    /* Ready register data */
+ 	BufData = CoverToL11(Dps_cfg->Dsp[Ch].InputMaxV);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VIN_OV_WARN_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = CoverToL11(Dps_cfg->Dsp[Ch].InputMinV);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VIN_UV_WARN_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(8192.0f * 5.5f * 1.1f);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_MAX, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMaxV / 1000) * 1.1f);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_OV_FAULT_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMaxV / 1000) * 1.1f);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_OV_WARN_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMinV / 1000));
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_UV_WARN_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMinV / 1000));
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_UV_FAULT_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(1.03f * 8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_MARGIN_HIGH, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+ 	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_MARGIN_LOW, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+	BufData = CoverToL11(Dps_cfg->Dsp[Ch].Protect_I);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(IOUT_OC_FAULT_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}	
+
+	/* Ready register data */
+	BufData = 0xECE0;
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(IOUT_UC_FAULT_LIMIT, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}	
+
+	/* Ready register data */
+	BufData = (float)(0.8 * 8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(POWER_GOOD_ON, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}		
+
+	/* Ready register data */
+	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(VOUT_COMMAND, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}	
+
+	/* Ready register data */
+	BufData = CoverToL11((Dps_cfg->Dsp[Ch].Open.Keep - Dps_cfg->Dsp[Ch].Open.STime) * 1000);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(TON_RISE, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}	
+
+	/* Ready register data */
+	BufData = CoverToL11(Dps_cfg->Dsp[Ch].Open.STime * 1000);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(TON_DELAY, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}		
+
+	/* Ready register data */
+	BufData = CoverToL11((Dps_cfg->Dsp[Ch].Close.Keep - Dps_cfg->Dsp[Ch].Close.STime) * 1000);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(TOFF_FALL, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}
+
+	/* Ready register data */
+	BufData = CoverToL11(Dps_cfg->Dsp[Ch].Close.STime * 1000);
+ 	data[0] = BufData & 0xFF;
+ 	data[1] = (BufData >> 8) & 0xFF;
+	/* Config register data */
+	status = Config_Isl8272_Reg(TOFF_DELAY, data, 2, IIC_Addr, dps_info.DBMsg[Bid].Chan);
+	if (CONFIG_SUCCESS != status) {
+		if (Protect) {
+			goto error;
+		}
+	}
+	else {
+
+	}	
+
+ 	debug("Dps%d start time:%d\r\n Dps%d start delay time:%d\r\n Dps%d end time:%d\r\n Dps%d end delay time:%d\r\n,",
+ 			Ch, Dps_cfg->Dsp[Ch].Open.STime,
+ 			Ch, Dps_cfg->Dsp[Ch].Open.Keep,
+ 			Ch, Dps_cfg->Dsp[Ch].Close.STime,
+ 			Ch, Dps_cfg->Dsp[Ch].Close.Keep);
+
+	return CONFIG_SUCCESS;
+
+error:
+	return CONFIG_FAILED;
+}
+
+
+//  u8 Isl8272_Config(Dps_channel Ch, Dps_Arg * Dps_cfg, u8 Protect, u8 Bid)
+//  {
+//  	/* Second Debug */
+//  	u32 status;
+//  	u8 data[2] = {0x00};
+//  	u8 temp[2] = {0x00};
+//  	u16 BufData, ReadData;
+//  	u8 IIC_Addr = 0x00;
+//  	TickType_t x1ms = pdMS_TO_TICKS(1);
+//  	u8 retry = 0x00;
+
+//  	switch (Ch) {
+//  		case DPSA_CHANNEL: {
+//  				IIC_Addr = DPSA_8272_ADDR;
+//  			}
+//  			break;
+//  		case DPSB_CHANNEL: {
+//  				IIC_Addr = DPSB_8277_ADDR;
+//  			}
+//  			break;
+//  		case DPSC_CHANNEL: {
+//  				IIC_Addr = DPSC_8277_ADDR;
+//  			}
+//  			break;
+//  		case DPSD_CHANNEL: {
+//  				IIC_Addr = DPSD_8277_ADDR;
+//  			}
+//  			break;
+//  		case DPSE_CHANNEL: {
+//  				IIC_Addr = DPSE_8277_ADDR;
+//  			}
+//  			break;
+//  		case DPSF_CHANNEL: {
+//  				IIC_Addr = DPSF_8277_ADDR;
+//  			}
+//  			break;
+//  		default:
+
+//  			break;
+//  	}
+
+// 	data[0] = 0x04;
+//  	status = SMBus_Write(data, 0, IIC_Addr, CLEAR_FAULTS, \
+//  			dps_info.DBMsg[0].Chan);
+//  	if (SUCCESS != status) {
+//  		debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  		if (Protect) {
+//  			goto error;
+//  		}
+//  		else {
+
+//  		}
+//  	}
+//  	vTaskDelay(x1ms * 100);
+
+//  	data[0] = 0x17;
+//  	status = SMBus_Write(data, 1, IIC_Addr, ON_OFF_CONFIG, \
+//  			dps_info.DBMsg[Bid].Chan);
+//  	if (SUCCESS != status) {
+//  		debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  		if (Protect) {
+//  			goto error;
+//  		}
+//  		else {
+
+//  		}
+//  	}
+//  	vTaskDelay(x1ms * 100);
+
+//  	data[0] = 0x04;
+//  	status = SMBus_Write(data, 1, IIC_Addr, OPERATION, \
+//  			dps_info.DBMsg[Bid].Chan);
+//  	if (SUCCESS != status) {
+//  		debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  		if (Protect) {
+//  			goto error;
+//  		}
+//  		else {
+
+//  		}
+//  	}
+//  	vTaskDelay(x1ms * 100);
+
+//  	retry = 0x5;
+//  	BufData = CoverToL11(13000);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VIN_OV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VIN_OV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x5;
+//  	BufData = CoverToL11(7000);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VIN_UV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VIN_UV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11(Dps_cfg->Dsp[Ch].InputMaxV);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VIN_OV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VIN_OV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11(Dps_cfg->Dsp[Ch].InputMinV);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VIN_UV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 failed %d in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VIN_UV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 failed %d in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * 5.5f * 1.1f);
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_MAX, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 failed %d in %s Files,%d Line\n", Ch,  __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_MAX, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMaxV / 1000) * 1.1f);
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_OV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n" , Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_OV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMaxV / 1000) * 1.1f);
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_OV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_OV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMinV / 1000));
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_UV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_UV_WARN_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].DpsMinV / 1000));
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_UV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_UV_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(1.03f * 8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_MARGIN_HIGH, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_MARGIN_HIGH, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_MARGIN_LOW, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__ ,__LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_MARGIN_LOW, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11(Dps_cfg->Dsp[Ch].Protect_I);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, IOUT_OC_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, IOUT_OC_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = 0xECE0;
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, IOUT_UC_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, IOUT_UC_FAULT_LIMIT, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(0.8 * 8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, POWER_GOOD_ON, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, POWER_GOOD_ON, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = (float)(8192.0f * ((float)Dps_cfg->Dsp[Ch].SetValue / 1000));
+//  	data[0] = (u16)BufData & 0xFF;
+//  	data[1] = ((u16)BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, VOUT_COMMAND, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_COMMAND, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11((Dps_cfg->Dsp[Ch].Open.Keep - Dps_cfg->Dsp[Ch].Open.STime) * 1000);
+//  	debug("Dps%d start time:%d\r\n Dps%d start delay time:%d\r\n Dps%d end time:%d\r\n Dps%d end delay time:%d\r\n,",
+//  			Ch, Dps_cfg->Dsp[Ch].Open.STime,
+//  			Ch, Dps_cfg->Dsp[Ch].Open.Keep,
+//  			Ch, Dps_cfg->Dsp[Ch].Close.STime,
+//  			Ch, Dps_cfg->Dsp[Ch].Close.Keep);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, TON_RISE, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, TON_RISE, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11(Dps_cfg->Dsp[Ch].Open.STime * 1000);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, TON_DELAY, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, TON_DELAY, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11(Dps_cfg->Dsp[Ch].Close.STime * 1000);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, TOFF_DELAY, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, TOFF_DELAY, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	retry = 0x05;
+//  	BufData = CoverToL11((Dps_cfg->Dsp[Ch].Close.Keep - Dps_cfg->Dsp[Ch].Close.STime) * 1000);
+//  	data[0] = BufData & 0xFF;
+//  	data[1] = (BufData >> 8) & 0xFF;
+//  	do {
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Write(data, 2, IIC_Addr, TOFF_FALL, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic write isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+//  				retry--;
+//  				if (!retry) {
+//  					break;
+//  				}
+//  			}
+//  		}
+		
+//  		vTaskDelay(x1ms);
+
+//  		status = SMBus_Read(temp, 2, IIC_Addr, TOFF_FALL, \
+//  				dps_info.DBMsg[Bid].Chan);
+//  		if (SUCCESS != status) {
+//  			debug("iic read isl8272 %d failed in %s Files,%d Line\n", Ch, __FILE__, __LINE__);
+//  			if (Protect) {
+//  				goto error;
+//  			}
+//  			else {
+
+//  			}
+//  		}
+//  		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+//  	} while (ReadData != BufData);
+
+//  	return SET_SUCCESS;
+
+//  error:
+//  	return SET_FAILED;
+
+//  }
+
+
+/*
+  ** Function Name        : CoverToL11
+  ** Function Description : u16 cover to l11
+  ** Function Parameter   : Data   			    : need to cover data                  
+  ** Function Return	  :	u16                 : cover over data
+  ** Notes				  : None
+*/
+u16 CoverToL11(u32 Data)
+{
+	u8 SubSquare,i;
+	u16 DataBuf;
+	float GetSbuSquare,Min;
+	u16 Watch1;
+
+	for (SubSquare = 0; SubSquare <= 11; SubSquare++) {
+		DataBuf = 1 << SubSquare;
+		CalBuf1[SubSquare] = Data * DataBuf;
+	}
+	Min = 1000;
+	for (i = 0; i < 12; i++) {
+		if (CalBuf1[i] < 2048000) {
+			DataBuf = CalBuf1[i] % 1000;
+			GetSbuSquare = (float)DataBuf / (1 << i);
+			if (GetSbuSquare < Min) {
+				Min = GetSbuSquare;
+				SubSquare = i;
+			}
+		}
+	}
+	Watch1 = SubSquare;
+	DataBuf = CalBuf1[SubSquare] / 1000;
+	Watch1 = DataBuf;
+	SubSquare = ~SubSquare + 1;
+	Watch1 = DataBuf | (SubSquare << 11);
+	return DataBuf | (SubSquare << 11);
+}
+
+
+// /*
+//   ** Function Name        : Set_Isl8272_Voltage
+//   ** Function Description : Set Isl8272(Isl8277) voltage value
+//   ** Function Parameter   : Ch   			    : Dps Channel                  
+//   ** 						vp 		            : Set voltage value
+//   ** Function Return	  :	SET_SUCEESS         : Set voltage success
+//   **                      : SET_FAILED          : Set voltage failde
+//   ** Notes				  : None
+// */
+// u8 Set_Isl8272_Voltage(Dps_channel Ch, float vo)
+// {
+// 	/* Second Debug */
+// 	u32 status;
+// 	u8 data[2] = {0x00};
+// 	u8 temp[2] = {0x00};
+// 	u16 BufData, ReadData;
+// 	u8 IIC_Addr = 0x00;
+
+// 	switch (Ch) {
+// 		case DPSA_CHANNEL: {
+// 				IIC_Addr = DPSA_8272_ADDR;
+// 			}
+// 			break;
+// 		case DPSB_CHANNEL: {
+// 				IIC_Addr = DPSB_8277_ADDR;
+// 			}
+// 			break;
+// 		case DPSC_CHANNEL: {
+// 				IIC_Addr = DPSC_8277_ADDR;
+// 			}
+// 			break;
+// 		case DPSD_CHANNEL: {
+// 				IIC_Addr = DPSD_8277_ADDR;
+// 			}
+// 			break;
+// 		case DPSE_CHANNEL: {
+// 				IIC_Addr = DPSE_8277_ADDR;
+// 			}
+// 			break;
+// 		case DPSF_CHANNEL: {
+// 				IIC_Addr = DPSF_8277_ADDR;
+// 			}
+// 			break;
+// 		default:
+
+// 			break;
+// 	}
+
+// 	BufData = (float)(8192 * vo);
+// 	data[0] = (u16)BufData & 0xFF;
+// 	data[1] = ((u16)BufData >> 8) & 0xFF;
+// 	usleep(500);
+// 	do {
+// 		status = SMBus_Write(data, 2, IIC_Addr, VOUT_COMMAND, \
+// 				dps_info.DBMsg[0].Chan);
+// 		if (SUCCESS != status) {
+// 			debug("iic write isl8272 failed in %s Files,%d Line\n",__FILE__,__LINE__);
+// 			return SET_FAILED;
+// 		}
+
+// 		usleep(500);
+
+// 		status = SMBus_Read(temp, 2, IIC_Addr, VOUT_COMMAND, \
+// 				dps_info.DBMsg[0].Chan);
+// 		if (SUCCESS != status) {
+// 			debug("iic read isl8272 failed in %s Files,%d Line\n",__FILE__,__LINE__);
+// 			return SET_FAILED;
+// 		}
+// 		ReadData = (u16)temp[0] | ((u16)temp[1] << 8);
+// 	} while (ReadData != BufData);
+
+// 	return SET_SUCCESS;
+// }
+
+
+/*
+  ** (C) COPYRIGHT ChengDuHangke END OF FILE
+*/
+

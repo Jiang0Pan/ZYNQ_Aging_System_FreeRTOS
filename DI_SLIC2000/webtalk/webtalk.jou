@@ -1,0 +1,30 @@
+#-----------------------------------------------------------
+# Webtalk v2015.4 (64-bit)
+# SW Build 1412921 on Wed Nov 18 09:43:45 MST 2015
+# 
+<<<<<<< .mine
+# Start of session at: Tue Mar 09 19:33:43 2021
+# Process ID: 26532
+# Current directory: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.5/webtalk
+||||||| .r15
+# Start of session at: Mon Mar 08 10:57:27 2021
+# Process ID: 15996
+# Current directory: E:/Benchmaking_DI/code/webtalk
+=======
+# Start of session at: Sun Feb 07 18:53:36 2021
+# Process ID: 6820
+# Current directory: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.2/webtalk
+>>>>>>> .r19
+# Command line: wbtcv.exe -mode batch -source sdk_webtalk.tcl
+<<<<<<< .mine
+# Log file: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.5/webtalk/webtalk.log
+# Journal file: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.5/webtalk\webtalk.jou
+||||||| .r15
+# Log file: E:/Benchmaking_DI/code/webtalk/webtalk.log
+# Journal file: E:/Benchmaking_DI/code/webtalk\webtalk.jou
+=======
+# Log file: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.2/webtalk/webtalk.log
+# Journal file: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.2/webtalk\webtalk.jou
+>>>>>>> .r19
+#-----------------------------------------------------------
+source sdk_webtalk.tcl

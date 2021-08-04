@@ -1,0 +1,21 @@
+17:19:25 **** Auto Build of configuration Debug for project HRIF_2010 ****
+make all 
+'Building file: ../src/User_y/Debug/Debug.c'
+'Invoking: ARM gcc compiler'
+arm-xilinx-eabi-gcc -Wall -O0 -g3 -I../../HRIF_2010_bsp/ps7_cortexa9_0/include -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Device\Emio" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Device\Ethernet" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Device\QSPI" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Device\Spiflash" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Error_Handler" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Main" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Others" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\System_State" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_y\Include" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\Peripherals\Include" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_y\Shell\inc" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Device\DPS" -I"E:\Benchmaking_DI\Software\LSIC_2000\DI_SLIC2000\HRIF_2010\src\User_j\Include\Insert_status" -c -fmessage-length=0 -MT"src/User_y/Debug/Debug.o" -MMD -MP -MF"src/User_y/Debug/Debug.d" -MT"src/User_y/Debug/Debug.d" -o "src/User_y/Debug/Debug.o" "../src/User_y/Debug/Debug.c"
+'Finished building: ../src/User_y/Debug/Debug.c'
+' '
+'Building target: HRIF_2010.elf'
+'Invoking: ARM gcc linker'
+arm-xilinx-eabi-gcc -Wl,-T -Wl,../src/lscript.ld -L../../HRIF_2010_bsp/ps7_cortexa9_0/lib -o "HRIF_2010.elf"  ./src/User_y/Version/Hw_Ver.o  ./src/User_y/Storage/eeprom.o  ./src/User_y/Shell/src/shell.o ./src/User_y/Shell/src/shell_cmd_list.o ./src/User_y/Shell/src/shell_ext.o ./src/User_y/Shell/src/shell_port.o  ./src/User_y/Max9972/Max528.o ./src/User_y/Max9972/Max9972.o  ./src/User_y/IO/IO.o  ./src/User_y/Dev_Ctl/Driver.o ./src/User_y/Dev_Ctl/Reserve.o ./src/User_y/Dev_Ctl/SystemInfo.o ./src/User_y/Dev_Ctl/fpga.o  ./src/User_y/Debug/Debug.o  ./src/User_y/DataStruct/orderstruct.o  ./src/User_y/DS1337_RTC/DS1337.o  ./src/User_y/ADS8688/Ads8688.o  ./src/User_j/System/System_State/system_state.o  ./src/User_j/System/Main/main.o  ./src/User_j/System/Error_Handler/error_handler.o  ./src/User_j/System/Device/Spiflash/w25q256.o  ./src/User_j/System/Device/QSPI/QSPI_Device/mt25ql512.o  ./src/User_j/System/Device/QSPI/QSPI_BUS/qspi_bus.o  ./src/User_j/System/Device/Insert_status/insert_status.o  ./src/User_j/System/Device/Ethernet/Verify/verify.o  ./src/User_j/System/Device/Ethernet/Tcp/tcp_server.o  ./src/User_j/System/Device/Ethernet/Operation/operation.o  ./src/User_j/System/Device/Ethernet/App_Layer_Protocol/app_layer_protocol.o  ./src/User_j/System/Device/Ethernet/Ack/ack.o  ./src/User_j/System/Device/Emio/system_emio.o  ./src/User_j/System/Device/DPS/ISL8272/isl8272.o  ./src/User_j/System/Device/DPS/FPGA_CTRL/fpga_ctrl.o  ./src/User_j/System/Device/DPS/DPS_Info/dps_info.o  ./src/User_j/System/Device/DPS/DAC/ad5694.o  ./src/User_j/System/Device/DPS/ADC/isl28023.o  ./src/Peripherals/Uartps/Uart1.o  ./src/Peripherals/Spi/Spi.o  ./src/Peripherals/SMBus/SMBus.o  ./src/Peripherals/Interrupt/Interrupt.o  ./src/Peripherals/IIC/IIC.o  ./src/Peripherals/Gpio/Gpio.o  ./src/Peripherals/Assist/Error.o  ./src/GlobalRef.o   -Wl,--start-group,-lxil,-lfreertos,-lgcc,-lc,--end-group -Wl,--start-group,-lxil,-llwip4,-lgcc,-lc,--end-group
+'Finished building target: HRIF_2010.elf'
+' '
+'Invoking: ARM Print Size'
+arm-xilinx-eabi-size HRIF_2010.elf  |tee "HRIF_2010.elf.size"
+   text	   data	    bss	    dec	    hex	filename
+ 336452	   6080	44079408	44421940	2a5d334	HRIF_2010.elf
+'Finished building: HRIF_2010.elf.size'
+' '
+
+17:19:30 Build Finished (took 5s.488ms)
+

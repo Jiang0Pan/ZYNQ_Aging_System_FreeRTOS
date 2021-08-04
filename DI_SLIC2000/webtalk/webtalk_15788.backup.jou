@@ -1,0 +1,12 @@
+#-----------------------------------------------------------
+# Webtalk v2015.4 (64-bit)
+# SW Build 1412921 on Wed Nov 18 09:43:45 MST 2015
+# 
+# Start of session at: Sun Feb 07 17:15:02 2021
+# Process ID: 15788
+# Current directory: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.2/webtalk
+# Command line: wbtcv.exe -mode batch -source sdk_webtalk.tcl
+# Log file: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.2/webtalk/webtalk.log
+# Journal file: E:/system_arm/Software/DI_PROJECT/CODE/DI_v1.2/webtalk\webtalk.jou
+#-----------------------------------------------------------
+source sdk_webtalk.tcl

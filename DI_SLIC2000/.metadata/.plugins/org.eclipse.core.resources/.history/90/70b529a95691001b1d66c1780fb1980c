@@ -1,0 +1,744 @@
+/*
+  ** @file           : dps_info.c
+  ** @brief          : Get DPS Channel Information From ISL28023 Source File
+  **
+  ** @attention
+  **
+  ** Copyright (c) 2020 ChengDuHangke.
+  ** All rights reserved.
+  **
+  ** This software is licensed by ChengDuHangke under Ultimate Liberty license
+  **
+*/
+
+
+/*
+  ** Include
+*/
+#include "FreeRTOS.h"
+#include "task.h"
+#include "lwip/sys.h"
+#include "sleep.h"
+#include "return_val.h"
+#include "debug_config.h"
+#include "GlobalRef.h"
+#include "ad5694.h"
+#include "fpga_ctrl.h"
+#include "isl8272.h"
+#include "isl28023.h"
+#include "system_state.h"
+#include "dps_info.h"
+
+
+/* 
+  ** Define
+*/
+/* Task stack size */
+#define 	THREAD_STACKSIZE    (1024)
+/* ISL28023 compare hardware parameter */
+/* DPS channel A - F minimum setting range */
+#define     CHA_F_MIN_RANGE     (910 + 200) * (910)  / (910) / (910 + 390)
+/* DPS channel A - F max setting range */
+#define     CHA_F_MAX_RANGE     (910 + 200) / (910)
+/* DPS channel A - F hardware gain */
+#define     CHA_F_GAIN          (100) / (220)
+/* DPS channel A - F minimum setting range */
+#define     CH1_4_MIN_RANGE     (1)
+/* DPS channel A - F max setting range */
+#define     CH1_4_MAX_RANGE     (100 + 10) / (100)
+/* DPS channel A - F hardware gain */
+#define     CH1_4_GAIN          (100) / (500)
+
+
+/*
+  ** Function Name        : Dps_Init
+  ** Function Description : Init fpga control dps system 
+  ** Function Parameter   : void
+  ** Function Return      : SET_SUCCESS         : Clear success
+							SET_FAILED          : Clear failed
+  ** Notes				  : None
+*/
+u8 Dps_Init(void)
+{
+	/* Reset DPS board0 fpga */
+	if (SUCCESS != Dps_Fpga_Reset(DPS_BD0)) {
+		return INIT_FAILED;
+	}
+	else {
+
+	}
+
+	/* Reset DPS board1 fpga */
+	if (SUCCESS != Dps_Fpga_Reset(DPS_BD1)) {
+		/* De_bug No Board 1 */
+		// return INIT_FAILED;
+	}
+	else {
+
+	}
+
+	if (SUCCESS != Reset_AD5694(dps_info.AD5694_SlaveAddr ,dps_info.DBMsg[0].Chan)) {
+		return INIT_FAILED;
+	}
+	else {
+
+	}
+
+	if (SUCCESS != Reset_AD5694(dps_info.AD5694_SlaveAddr ,dps_info.DBMsg[1].Chan)) {
+		/* De_bug No Board 1 */
+		// return INIT_FAILED;
+	}
+	else {
+
+	}
+
+	/* Enable DPS board0 level 1 */
+	if (SET_SUCCESS != Set_All_Dps_L1_Enable(L1_ALL_ENABLE, DPS_BD0)) {
+		return INIT_FAILED;
+	}
+	/* Enable DPS board1 level 1 */
+	if (SET_SUCCESS != Set_All_Dps_L1_Enable(L1_ALL_ENABLE, DPS_BD1)) {
+		/* De_bug No Board 1 */
+		// return INIT_FAILED;
+	}
+
+	return INIT_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Config
+  ** Function Description : Configuration Dps Dpm system
+  ** Function Parameter   : dps_cfg             : Dps configuration parameter pointer
+  						    Sample              : Aging sample data pointer
+                            protect             : protect enable 
+  ** Function Return      : CONFIG_SUCCESS      : Config success
+							CONFIG_FAILED       : Config failed
+  ** Notes				  : None
+*/
+u8 Dps_Config(Dps_Arg * dps_cfg, Sample_Data * Sample, u8 protect)
+{
+	/* 1ms cover ticks delay usde */
+	TickType_t x1ms = pdMS_TO_TICKS(1);
+	u8 id = 0x00;
+	u16 BufData= 0x00;
+
+	/* 1ms cover ticks timer usde */
+	const TickType_t t1ms = pdMS_TO_TICKS(2);
+	/* Timwe id */
+	s32 timer_id = 0x01;
+	TimerHandle_t Dps_timer;
+
+	/* Config DPS board0 channel A~F */
+	/* Debug . DPS1 Short circuit*/
+	for (id = DPSB_CHANNEL; id <= DPSF_CHANNEL; id++) {	
+	// for (id = DPSA_CHANNEL; id <= DPSF_CHANNEL; id++) {
+		if (SUCCESS != Isl8272_Config(id, dps_cfg, protect, DPS_BD0)) {
+			if (protect) {
+				Sample->AgeStatus = ERROR_PROTECT;
+				Sample->ErrStatus = DPS1_SET_ERR << id;
+				return CONFIG_FAILED;
+			}
+			else {
+
+			}
+		}
+	}
+
+	/* Config DPS board1 channel A~F */
+	for (id = DPSA_CHANNEL; id <= DPSF_CHANNEL; id++) {
+		if (SUCCESS != Isl8272_Config(id, dps_cfg, protect, DPS_BD1)) {
+			if (protect) {
+				Sample->AgeStatus = ERROR_PROTECT;
+				Sample->ErrStatus = DPS9_SET_ERR << id;
+				/* De_bug No Board 1 */
+//				return CONFIG_FAILED;
+			}
+			else {
+
+			}
+		}
+	}
+
+	for (id = DPSA_CHANNEL; id <= DPS2_CHANNEL; id++) {
+		/* Ready register data . MSB */
+		BufData = dps_cfg->Dsp[id].Open.STime;
+		/* Write DPS FPGA register data : CHA_ON_DELAY_REG + Ch */
+		if (CONFIG_SUCCESS != Config_Dps_Fpga_Reg(CHA_ON_DELAY_REG + id, BufData, DPS_BD0)) {
+			if (protect) {
+				Sample->AgeStatus = ERROR_PROTECT;
+				Sample->ErrStatus = DPS1_SET_ERR << id;
+				return CONFIG_FAILED;				
+			}
+		}
+		else {
+
+		}
+
+		/* Ready register data . MSB */
+		BufData = dps_cfg->Dsp[id].Close.STime;
+		/* Write DPS FPGA register data : CHA_OFF_DELAY_REG + Ch */
+		if (CONFIG_SUCCESS != Config_Dps_Fpga_Reg(CHA_OFF_DELAY_REG + id, BufData, DPS_BD0)) {
+			if (protect) {
+				Sample->AgeStatus = ERROR_PROTECT;
+				Sample->ErrStatus = DPS1_SET_ERR << id;
+				return CONFIG_FAILED;
+			}
+		}
+		else {
+
+		}
+	}
+
+	for (id = DPSA_CHANNEL; id <= DPS2_CHANNEL; id++) {
+		/* Ready register data . MSB */
+		BufData = dps_cfg->Dsp[id + DPS3_CHANNEL].Open.STime;
+		/* Write DPS FPGA register data : CHA_ON_DELAY_REG + Ch */
+		if (CONFIG_SUCCESS != Config_Dps_Fpga_Reg(CHA_ON_DELAY_REG + id, BufData, DPS_BD1)) {
+			if (protect) {
+				Sample->AgeStatus = ERROR_PROTECT;
+				Sample->ErrStatus = DPS9_SET_ERR << id;
+				// return CONFIG_FAILED;				
+			}
+		}
+		else {
+
+		}
+
+		/* Ready register data . MSB */
+		BufData = dps_cfg->Dsp[id + DPS3_CHANNEL].Close.STime;
+		/* Write DPS FPGA register data : CHA_OFF_DELAY_REG + Ch */
+		if (CONFIG_SUCCESS != Config_Dps_Fpga_Reg(CHA_OFF_DELAY_REG + id, BufData, DPS_BD1)) {
+			if (protect) {
+				Sample->AgeStatus = ERROR_PROTECT;
+				Sample->ErrStatus = DPS9_SET_ERR << id;
+				// return CONFIG_FAILED;
+			}
+		}
+		else {
+
+		}
+	}
+
+	/* Enable DPS board0 level 3 */
+	if (SET_SUCCESS != Set_All_Dps_L3_Enable(L3_ALL_ENABLE, DPS_BD0)) {
+		if (protect) {
+			return CONFIG_FAILED;
+		}
+		else {
+
+		}
+	}
+	/* Enable DPS board1 level 3 */
+	if (SET_SUCCESS != Set_All_Dps_L3_Enable(L3_ALL_ENABLE, DPS_BD1)) {
+		if (protect) {
+				/* De_bug No Board 1 */
+//				return CONFIG_FAILED;
+		}
+		else {
+
+		}
+	}
+	vTaskDelay(x1ms);
+
+	/* Enable DPS board0 level 2 */
+	if (SET_SUCCESS != Set_All_Dps_L2_Enable(L2_ALL_ENABLE, DPS_BD0)) {
+		if (protect) {
+			return CONFIG_FAILED;
+		}
+		else {
+
+		}
+	}
+	/* Enable DPS board1 level 2 */	
+	if (SET_SUCCESS != Set_All_Dps_L2_Enable(L2_ALL_ENABLE, DPS_BD1)) {
+		if (protect) {
+				/* De_bug No Board 1 */
+//				return CONFIG_FAILED;
+		}
+		else {
+
+		}
+	}
+
+	/* Create software timer */
+	/* Timer name */
+	Dps_timer = xTimerCreate("AD5694 Line Power on",\
+				/* Timer cycle 1ms */
+				t1ms,\
+				/* Work mode is cycle mode */
+				pdTRUE,\
+				/* Timwe id is 0x01 */
+				(void *)timer_id,
+				/* Timwe handler funcation */
+				(TimerCallbackFunction_t)AD5694_Set_Line_Power_On_Task);
+	/* Check create software timer failed or success */
+	configASSERT(Dps_timer);
+	if (NULL != Dps_timer) {
+		/* Success, start timer */
+		xTimerStart(Dps_timer, 0);
+	}
+	else {
+		return CONFIG_FAILED;
+	}
+
+	return CONFIG_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Check_Error
+  ** Function Description : Start dps channel error cheek
+  ** Function Parameter   : dps_cfg             : DPS config parameter
+  ** Function Return      : SET_SUCCESS         : Disable success
+							SET_FAILED          : Disable failed
+  ** Notes				  : None
+*/ 
+u8 Dps_Check_Error(Dps_Arg * dps_cfg) 
+{ 
+	/* Ready data */ 
+	u8 status; 
+	TickType_t x1ms = pdMS_TO_TICKS(1);
+	u32 delay_time = 0x00;
+	u8 ch = 0x00;
+
+	/* Sample data */
+	Sample_Data * Sample = (Sample_Data *)SAMPLE_DATA_ADD;
+
+	/* Wait power on time */
+	status = Get_Max_Open_Delay(dps_cfg, &delay_time);
+	if (GET_SUCCESS != status) {
+		return FAILURE;
+	}
+	vTaskDelay(x1ms * delay_time);
+
+	/* Set isl28023 compare voltage */
+	float voltage = 0.0f;
+	float temp0, temp1;
+	for (ch = DPSA_CHANNEL; ch < DPS3_CHANNEL; ch++) {
+		switch (ch) {
+			case DPSA_CHANNEL ... DPSB_CHANNEL: {
+				temp0 = (u16)(dps_cfg->Dsp[ch].SetValue * CHA_F_MIN_RANGE);
+				temp0 = temp0 * CHA_F_GAIN;
+				temp1 = (u16)(dps_cfg->Dsp[ch].SetValue * CHA_F_MAX_RANGE);
+				temp1 = temp1 * CHA_F_GAIN;
+			}
+				break;
+			case DPSC_CHANNEL ... DPSD_CHANNEL: {
+				/* Hardware channel cover user channel */
+				u8 temp_ch = 0;
+				if (ch == DPSC_CHANNEL) {
+					temp_ch = DPS2_CHANNEL;
+				}
+				else if (ch == DPSD_CHANNEL) {
+					temp_ch = DPS1_CHANNEL;
+				}
+				else {
+
+				}
+
+				temp0 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CH1_4_MIN_RANGE);
+				temp0 = temp0 * CH1_4_GAIN;
+				temp1 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CH1_4_MAX_RANGE);
+				temp1 = temp1 * CH1_4_GAIN;
+			}
+				break;
+			case DPSE_CHANNEL ... DPS2_CHANNEL: {
+				/* Hardware channel cover user channel */
+				u8 temp_ch = 0;
+	            temp_ch = ch - DPSC_CHANNEL;
+
+				temp0 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CHA_F_MIN_RANGE);
+				temp0 = temp0 * CHA_F_GAIN;
+				temp1 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CHA_F_MAX_RANGE);
+				temp1 = temp1 * CHA_F_GAIN;
+			}
+				break;			
+			default: {
+				return FAILURE;
+			}
+				break;
+		}
+		temp0 = (temp0 + temp1) / 2;
+		voltage = (float)(temp0 / 1000);
+		status = Set_dac_out(voltage, dps_info.DBMsg[0].Dpm[ch].DpmAddr , \
+		dps_info.DBMsg[0].Chan);
+		if (SUCCESS != status) {
+			return FAILURE;
+		}
+	}
+
+	status  = Set_All_Dps_Check_Error(ALL_CHECK_ERR, DPS_BD0);
+	if (SET_SUCCESS != status) {
+		return FAILURE;
+	}
+
+	/* Aging status is do */
+	Sample->AgeStatus = AGING_DO;
+
+	return SUCCESS;
+}
+
+
+/*
+
+  ** Function Name        : Dps_Disabl
+  e
+  ** Function Description : Disable Dps Dpm system
+  ** Function Parameter   : void
+  ** Function Return      : SET_SUCCESS         : Disable success
+							SET_FAILED          : Disable failed
+  ** Notes				  : None
+*/
+u8 Dps_Disable(void)
+{
+	TickType_t x1ms = pdMS_TO_TICKS(1);
+	/* */
+
+	/* Disable DPS board0 level 2 */
+	if (SET_SUCCESS != Set_All_Dps_L2_Enable(ALL_DISABLE, DPS_BD0)) {
+		return SET_FAILED;
+	}
+	/* Disable DPS board1 level 2 */	
+	if (SET_SUCCESS != Set_All_Dps_L2_Enable(ALL_DISABLE, DPS_BD1)) {
+		/* De_bug No Board 1 */		
+		// return SET_FAILED;
+	}
+
+	/* Disable DPS board0 level 3 */
+	if (SET_SUCCESS != Set_All_Dps_L3_Enable(ALL_DISABLE, DPS_BD0)) {
+		return SET_FAILED;
+	}
+	/* Disable DPS board1 level 3 */
+	if (SET_SUCCESS != Set_All_Dps_L3_Enable(ALL_DISABLE, DPS_BD1)) {
+	    /* De_bug No Board 1 */
+		// return SET_FAILED;
+	}
+	vTaskDelay(x1ms);
+
+	/* Disable DPS board0 ADC Channel1 and Channel2 */
+	if (SUCCESS != Disable_DPS_CH1_CH2(DPS_BD0))  {
+		return SET_FAILED;
+	}
+	vTaskDelay(x1ms);
+
+	/* Disable DPS board1 ADC Channel1 and Channel2 */
+	if (SUCCESS != Disable_DPS_CH1_CH2(DPS_BD1))  {
+		// return SET_FAILED;
+	}
+	vTaskDelay(x1ms);
+
+	return SET_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Info_Clear
+  ** Function Description : Clear dps information 
+  ** Function Parameter   : Sample              : Aging sample data
+  ** Function Return      : CLEAR_SUCCESS       : Clear success
+							CLEAR_FAILED        : Clear failed
+  ** Notes				  : None
+*/
+u8 Dps_Info_Clear(Sample_Data * Sample)
+{
+	u8 i = 0;
+
+	for ( i = 0; i < 16; i ++) {
+		Sample->DpsVO[i] = 0x00;
+		Sample->DpsIO[i] = 0x00;
+		Sample->ErrStatus = 0x00;
+		Sample->TempSamp[i] = 0x00;
+	}
+
+	return CLEAR_SUCCESS;
+}
+
+/*
+  ** Function Name        : Get_Max_Open_Delay
+  ** Function Description : Get max open delay time
+  ** Function Parameter   : dps_cfg             : DPS config parameter
+  ** Function Return      : GET_SUCCESS         : Disable success
+							GET_FAILED          : Disable failed
+  ** Notes				  : None
+*/
+u8 Get_Max_Open_Delay(Dps_Arg * dps_cfg, u32 * Delay)
+{
+	u32 delay = 0x00;
+	u8 count = 0x00;
+
+	delay = dps_cfg->Dsp[DPSA_CHANNEL].Open.Keep;
+
+	for (count = DPSB_CHANNEL; count < DPS3_CHANNEL; count++) {
+		if (delay < dps_cfg->Dsp[count].Open.Keep) {
+			delay = dps_cfg->Dsp[count].Open.Keep;
+		}
+	}
+
+	* Delay = delay;
+
+	return GET_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Enable_Check_Error
+  ** Function Description : Start dps channel error cheek
+  ** Function Parameter   : dps_cfg             : DPS config parameter
+  ** Function Return      : SET_SUCCESS         : Disable success
+							SET_FAILED          : Disable failed
+  ** Notes				  : None
+*/ 
+u8 Dps_Enable_Check_Error(Dps_Arg * dps_cfg) 
+{ 
+	/* Ready data */ 
+	u8 status; 
+	TickType_t x1ms = pdMS_TO_TICKS(1);
+	u32 delay_time = 0x00;
+	u8 ch = 0x00;
+
+	/* Sample data */
+	Sample_Data * Sample = (Sample_Data *)SAMPLE_DATA_ADD;
+
+	/* Wait power on time */
+	status = Get_Max_Open_Delay(dps_cfg, &delay_time);
+	if (GET_SUCCESS != status) {
+		return FAILURE;
+	}
+	vTaskDelay(x1ms * delay_time);
+
+	/* Set isl28023 compare voltage */
+	float voltage = 0.0f;
+	float temp0, temp1;
+	for (ch = DPSA_CHANNEL; ch < DPS3_CHANNEL; ch++) {
+		switch (ch) {
+			case DPSA_CHANNEL ... DPSB_CHANNEL: {
+				temp0 = (u16)(dps_cfg->Dsp[ch].SetValue * CHA_F_MIN_RANGE);
+				temp0 = temp0 * CHA_F_GAIN;
+				temp1 = (u16)(dps_cfg->Dsp[ch].SetValue * CHA_F_MAX_RANGE);
+				temp1 = temp1 * CHA_F_GAIN;
+			}
+				break;
+			case DPSC_CHANNEL ... DPSD_CHANNEL: {
+				/* Hardware channel cover user channel */
+				u8 temp_ch = 0;
+				if (ch == DPSC_CHANNEL) {
+					temp_ch = DPS2_CHANNEL;
+				}
+				else if (ch == DPSD_CHANNEL) {
+					temp_ch = DPS1_CHANNEL;
+				}
+				else {
+
+				}
+
+				temp0 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CH1_4_MIN_RANGE);
+				temp0 = temp0 * CH1_4_GAIN;
+				temp1 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CH1_4_MAX_RANGE);
+				temp1 = temp1 * CH1_4_GAIN;
+			}
+				break;
+			case DPSE_CHANNEL ... DPS2_CHANNEL: {
+				/* Hardware channel cover user channel */
+				u8 temp_ch = 0;
+	            temp_ch = ch - DPSC_CHANNEL;
+
+				temp0 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CHA_F_MIN_RANGE);
+				temp0 = temp0 * CHA_F_GAIN;
+				temp1 = (u16)(dps_cfg->Dsp[temp_ch].SetValue * CHA_F_MAX_RANGE);
+				temp1 = temp1 * CHA_F_GAIN;
+			}
+				break;			
+			default: {
+				return FAILURE;
+			}
+				break;
+		}
+		temp0 = (temp0 + temp1) / 2;
+		voltage = (float)(temp0 / 1000);
+		status = Set_dac_out(voltage, dps_info.DBMsg[0].Dpm[ch].DpmAddr , \
+		dps_info.DBMsg[0].Chan);
+		if (SUCCESS != status) {
+			return FAILURE;
+		}
+	}
+
+	status  = Set_All_Dps_Check_Error(ALL_CHECK_ERR, DPS_BD0);
+	if (SET_SUCCESS != status) {
+		return FAILURE;
+	}
+
+	/* Aging status is do */
+	Sample->AgeStatus = AGING_DO;
+
+	return SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Disable_Check_Error
+  ** Function Description : Stop dps channel error cheek
+  ** Function Parameter   : Void
+  ** Function Return      : SET_SUCCESS         : Disable success
+							SET_FAILED          : Disable failed
+  ** Notes				  : None
+*/ 
+u8 Dps_Disable_Check_Error(void) 
+{ 
+	/* Ready data */ 
+	u8 status; 
+	u8 ch = 0x00;
+
+	/* Set isl28023 compare voltage */
+	float voltage = 0.0f;
+	for (ch = DPSA_CHANNEL; ch < DPS3_CHANNEL; ch++) {
+		status = Set_dac_out(voltage, dps_info.DBMsg[0].Dpm[ch].DpmAddr , \
+				dps_info.DBMsg[0].Chan);
+		if (SUCCESS != status) {
+			return FAILURE;
+		}
+	}
+
+	status  = Set_All_Dps_Check_Error(ALL_DISABLE, DPS_BD0);
+	if (SET_SUCCESS != status) {
+		return FAILURE;
+	}
+
+	return SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Disable
+  ** Function Description : Disable Dps Dpm system
+  ** Function Parameter   : void
+  ** Function Return      : SET_SUCCESS         : Disable success
+							SET_FAILED          : Disable failed
+  ** Notes				  : None
+*/
+u8 Dps_Disable(void)
+{
+	TickType_t x1ms = pdMS_TO_TICKS(1);
+
+	/* Disable error check */
+	if (SUCCESS != Dps_Disable_Check_Error()) {
+		return SET_FAILED;
+	}
+
+	/* Disable DPS board0 level 2 */
+	if (SET_SUCCESS != Set_All_Dps_L2_Enable(ALL_DISABLE, DPS_BD0)) {
+		return SET_FAILED;
+	}
+	/* Disable DPS board1 level 2 */	
+	if (SET_SUCCESS != Set_All_Dps_L2_Enable(ALL_DISABLE, DPS_BD1)) {
+		/* De_bug No Board 1 */		
+		// return SET_FAILED;
+	}
+
+	/* Disable DPS board0 level 3 */
+	if (SET_SUCCESS != Set_All_Dps_L3_Enable(ALL_DISABLE, DPS_BD0)) {
+		return SET_FAILED;
+	}
+	/* Disable DPS board1 level 3 */
+	if (SET_SUCCESS != Set_All_Dps_L3_Enable(ALL_DISABLE, DPS_BD1)) {
+	    /* De_bug No Board 1 */
+		// return SET_FAILED;
+	}
+	vTaskDelay(x1ms);
+
+	/* Disable DPS board0 ADC Channel1 and Channel2 */
+	if (SUCCESS != Disable_DPS_CH1_CH2(DPS_BD0))  {
+		return SET_FAILED;
+	}
+	vTaskDelay(x1ms);
+
+	/* Disable DPS board1 ADC Channel1 and Channel2 */
+	if (SUCCESS != Disable_DPS_CH1_CH2(DPS_BD1))  {
+		// return SET_FAILED;
+	}
+	vTaskDelay(x1ms);
+
+	return SET_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Dps_Info_Clear
+  ** Function Description : Clear dps information 
+  ** Function Parameter   : Sample              : Aging sample data
+  ** Function Return      : CLEAR_SUCCESS       : Clear success
+							CLEAR_FAILED        : Clear failed
+  ** Notes				  : None
+*/
+u8 Dps_Info_Clear(Sample_Data * Sample)
+{
+	u8 i = 0;
+
+	for ( i = 0; i < 16; i ++) {
+		Sample->DpsVO[i] = 0x00;
+		Sample->DpsIO[i] = 0x00;
+		Sample->ErrStatus = 0x00;
+		Sample->TempSamp[i] = 0x00;
+	}
+
+	return CLEAR_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Get_Max_Open_Delay
+  ** Function Description : Get max open delay time
+  ** Function Parameter   : dps_cfg             : DPS config parameter
+  ** Function Return      : GET_SUCCESS         : Disable success
+							GET_FAILED          : Disable failed
+  ** Notes				  : None
+*/
+u8 Get_Max_Open_Delay(Dps_Arg * dps_cfg, u32 * Delay)
+{
+	u32 delay = 0x00;
+	u8 count = 0x00;
+
+	delay = dps_cfg->Dsp[DPSA_CHANNEL].Open.Keep;
+
+	for (count = DPSB_CHANNEL; count < DPS3_CHANNEL; count++) {
+		if (delay < dps_cfg->Dsp[count].Open.Keep) {
+			delay = dps_cfg->Dsp[count].Open.Keep;
+		}
+	}
+
+	* Delay = delay;
+
+	return GET_SUCCESS;
+}
+
+
+/*
+  ** Function Name        : Get_Max_Close_Delay
+  ** Function Description : Get max close delay time
+  ** Function Parameter   : dps_cfg             : DPS config parameter
+  ** Function Return      : GET_SUCCESS         : Disable success
+							GET_FAILED          : Disable failed
+  ** Notes				  : None
+*/
+u8 Get_Max_Close_Delay(Dps_Arg * dps_cfg, u32 * Delay)
+{
+	u32 delay = 0x00;
+	u8 count = 0x00;
+
+	delay = dps_cfg->Dsp[0].Close.Keep;
+
+	for (count = 1; count < 8; count++) {
+		if (delay < dps_cfg->Dsp[count].Close.Keep) {
+			delay = dps_cfg->Dsp[count].Close.Keep;
+		}
+	}
+
+	* Delay = delay;
+
+	return GET_SUCCESS;
+}
+
+
+/*
+  ** (C) COPYRIGHT ChengDuHangke END OF FILE
+*/

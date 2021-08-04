@@ -1,0 +1,67 @@
+
+
+#ifndef _FSMC_H
+#define _FSMC_H
+
+
+#include "gpio.h"
+
+typedef enum {
+	FSMC_ECS0,
+	FSMC_ECS1,
+	FSMC_ECS2,
+	FSMC_ECS3,
+	FSMC_ECS4,
+	FSMC_ECS5,
+	FSMC_ECS6,
+	FSMC_ECS7
+}ECS_GPIO;
+
+typedef enum {
+	FSMC_CS0,
+	FSMC_CS1,
+	FSMC_CS2,
+	FSMC_CS3
+}CS_GPIO;
+
+
+typedef enum{
+	FSMC_WR,
+	FSMC_RD,
+
+	FSMC_DATA00,
+	FSMC_DATA01,
+	FSMC_DATA02,
+	FSMC_DATA03,
+	FSMC_DATA04,
+	FSMC_DATA05,
+	FSMC_DATA06,
+	FSMC_DATA07,
+	FSMC_DATA08,
+	FSMC_DATA09,
+	FSMC_DATA10,
+	FSMC_DATA11,
+	FSMC_DATA12,
+	FSMC_DATA13,
+	FSMC_DATA14,
+	FSMC_DATA15
+}FSMC_GPIO;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#endif
+
+
+

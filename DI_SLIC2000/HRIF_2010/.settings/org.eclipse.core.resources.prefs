@@ -1,0 +1,14 @@
+eclipse.preferences.version=1
+encoding//src/GlobalRef.h=GBK
+encoding//src/Peripherals/IIC/IIC.c=UTF-8
+encoding//src/Peripherals/SMBus/SMBus.c=UTF-8
+encoding//src/User_j/System/Device/DPS/ADC/isl28023.c=UTF-8
+encoding//src/User_j/System/Main/main.c=UTF-8
+encoding//src/User_j/System/System_State/system_state.c=UTF-8
+encoding//src/User_y/Debug/Debug.c=UTF-8
+encoding//src/User_y/Dev_Ctl/Driver.c=UTF-8
+encoding//src/User_y/Shell/inc/shell.h=UTF-8
+encoding//src/User_y/Shell/inc/shell_cfg.h=UTF-8
+encoding//src/User_y/Shell/src/shell.c=UTF-8
+encoding//src/User_y/Shell/src/shell_cmd_list.c=UTF-8
+encoding//src/User_y/Shell/src/shell_port.c=UTF-8

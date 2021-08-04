@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Rename resource &apos;HRIF_2010/src/User_j/System/Device/DPS/DPS_Info&apos; to &apos;DPS_INFO&apos;" description="Rename resource &apos;DPS_Info&apos;" flags="7" id="org.eclipse.ltk.core.refactoring.rename.resource" input="src/User_j/System/Device/DPS/DPS_Info" name="DPS_INFO" stamp="1615883868111" updateReferences="true"/>
+</session>

@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "ad5694.h": "c",
+        "fpga_ctrl.h": "c",
+        "return_val.h": "c",
+        "debug_config.h": "c",
+        "isl8272.h": "c",
+        "isl28023.h": "c",
+        "debug.h": "c",
+        "dps_info.h": "c",
+        "stdio.h": "c",
+        "fcntl.h": "c"
+    }
+}
