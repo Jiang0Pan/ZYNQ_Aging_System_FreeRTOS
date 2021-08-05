@@ -54,12 +54,15 @@ fsbl bsp:
     1. xilinx lib
 
 pl008_chk201207_n_hw_platform_0:
+
     1. platform folder
 
 pl008_chk201207_n.bit：
+
     1. pl bit file
    
 pl008_chk201207_n.hdf:
+
     1. xilinux platform file
 
 
